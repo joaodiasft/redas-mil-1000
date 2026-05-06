@@ -7,6 +7,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminAlunos } from './components/admin/AdminAlunos';
 import { AdminRedacoes } from './components/admin/AdminRedacoes';
 import { AdminFinanceiro } from './components/admin/AdminFinanceiro';
+import { AdminTurmas } from './components/admin/AdminTurmas';
 import { ProfFrequencia } from './components/prof/ProfFrequencia';
 import { ProfNotas } from './components/prof/ProfNotas';
 import { StudentDashboard } from './components/student/StudentDashboard';
@@ -49,6 +50,7 @@ export default function App() {
         {/* Rotas Admin Protegidas */}
         <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
         <Route path="/admin/alunos" element={<PrivateRoute><AdminAlunos /></PrivateRoute>} />
+        <Route path="/admin/turmas" element={<PrivateRoute><AdminTurmas /></PrivateRoute>} />
         <Route path="/admin/redacoes" element={<PrivateRoute><AdminRedacoes /></PrivateRoute>} />
         <Route path="/admin/financeiro" element={<PrivateRoute><AdminFinanceiro /></PrivateRoute>} />
         

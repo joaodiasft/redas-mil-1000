@@ -1,13 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { PrismaClient } from '@prisma/client';
 import "dotenv/config";
-
-// Inicializando Prisma com accelerateUrl conforme Prisma 7 e Data Proxy
-const prisma = new PrismaClient({
-  // Prisma 7+ require you pass accelerateUrl here if you use Data Proxy
-  accelerateUrl: process.env.DATABASE_URL as string,
-});
+import { prisma } from './prismaSingleton';
 
 import enrollmentRoutes from './routes/enrollment.routes';
 import essayRoutes from './routes/essay.routes';

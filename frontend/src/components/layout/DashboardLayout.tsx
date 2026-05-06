@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Badge } from '../ui/Badge';
@@ -17,6 +17,18 @@ export const DashboardLayout: React.FC<LayoutProps> = ({
   userName = 'Usuário',
 }) => {
   const navigate = useNavigate();
+  const [displayName, setDisplayName] = useState(userName);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const meta = user?.user_metadata as Record<string, unknown> | undefined;
+      const n =
+        (typeof meta?.full_name === 'string' && meta.full_name) ||
+        (typeof meta?.name === 'string' && meta.name) ||
+        user?.email?.split('@')[0];
+      if (n) setDisplayName(n);
+    });
+  }, []);
 
   const adminMenu = [
     { label: 'Dashboard', path: '/admin' },
@@ -103,11 +115,11 @@ export const DashboardLayout: React.FC<LayoutProps> = ({
           <div className="flex items-center gap-3 px-2 py-2">
             <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center shrink-0">
               <span className="text-pink-700 font-bold text-xs">
-                {userName.charAt(0).toUpperCase()}
+                {displayName.charAt(0).toUpperCase()}
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-slate-800 truncate">{userName}</p>
+              <p className="text-xs font-semibold text-slate-800 truncate">{displayName}</p>
               <Badge variant={roleColors[role] as any} dot>
                 {roleLabels[role]}
               </Badge>

@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../authMiddleware';
+import { prisma } from '../prismaSingleton';
 
 const router = Router();
-const prisma = new PrismaClient({ accelerateUrl: process.env.DATABASE_URL });
 
 /**
  * Endpoint para buscar frequência por turma e data (Professor/Admin)
@@ -52,8 +51,8 @@ router.post('/batch', requireAuth, async (req, res) => {
     // O Prisma não tem um "upsertMany", então faremos em iteração (transação ou sequencial).
     // Para simplificar e garantir a inserção no Neon Pooler:
     for (const record of records) {
-      const { enrollmentId, status, notes } = record;
-      
+      const { enrollmentId, status, replacementDate } = record;
+
       const attendance = await prisma.attendance.upsert({
         where: {
           enrollmentId_date: {
@@ -61,12 +60,15 @@ router.post('/batch', requireAuth, async (req, res) => {
             date: targetDate
           }
         },
-        update: { status, notes },
+        update: {
+          status,
+          replacementDate: replacementDate ? new Date(replacementDate) : null
+        },
         create: {
           enrollmentId,
           date: targetDate,
           status,
-          notes
+          replacementDate: replacementDate ? new Date(replacementDate) : null
         }
       });
       results.push(attendance);

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Alert } from '../ui/Alert';
 
 export const LoginPage: React.FC = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,10 +18,30 @@ export const LoginPage: React.FC = () => {
     setError(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
+    if (error || !data.session) {
       setError('E-mail ou senha incorretos. Verifique seus dados e tente novamente.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const profile = await fetch('/api/me', {
+        headers: { Authorization: `Bearer ${data.session.access_token}` },
+      }).then((r) => r.json());
+
+      if (profile?.error) {
+        setError(typeof profile.error === 'string' ? profile.error : 'Não foi possível carregar seu perfil.');
+        setLoading(false);
+        return;
+      }
+
+      if (profile.role === 'ADMIN') navigate('/admin', { replace: true });
+      else if (profile.role === 'PROFESSOR') navigate('/prof/frequencia', { replace: true });
+      else navigate('/meu-espaco', { replace: true });
+    } catch {
+      setError('Erro ao conectar à API. Tente novamente.');
     }
     setLoading(false);
   };

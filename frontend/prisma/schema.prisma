@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
 // O ID do usuário no Prisma deve ser o mesmo do Supabase Auth (UUID)

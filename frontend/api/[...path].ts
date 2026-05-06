@@ -1,208 +1,420 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { PrismaClient } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type User as SupabaseAuthUser } from '@supabase/supabase-js';
+import type { AttendanceStatus, Role } from '@prisma/client';
+import { getPrisma } from './_prisma';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
+const ATT_LABEL_TO_ENUM: Record<string, AttendanceStatus> = {
+  Presente: 'PRESENTE',
+  Falta: 'FALTA',
+  Justificou: 'JUSTIFICOU',
+  'Reposição Agendada': 'REPOSICAO_AGENDADA',
+  'Reposição Feita Nesta Aula': 'REPOSICAO_NESTA_AULA',
+  'Reposição Feita': 'REPOSICAO_FEITA',
+  'Reposição Feita (Outro dia)': 'REPOSICAO_FEITA',
+};
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function supabaseServer() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('SUPABASE_URL (ou VITE_SUPABASE_URL) e SUPABASE_SERVICE_ROLE_KEY são obrigatórios na API.');
+  return createClient(url, key);
+}
 
-// Verifica autenticação
-async function getUser(req: VercelRequest) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+async function getAuthUser(req: VercelRequest): Promise<SupabaseAuthUser | null> {
+  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return null;
+  const supabase = supabaseServer();
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return null;
   return user;
 }
 
+async function ensurePrismaUser(authUser: SupabaseAuthUser) {
+  const prisma = getPrisma();
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const profEmails = (process.env.PROFESSOR_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  let defaultRole: Role = 'ALUNO';
+  const em = authUser.email?.toLowerCase();
+  if (em && adminEmails.includes(em)) defaultRole = 'ADMIN';
+  else if (em && profEmails.includes(em)) defaultRole = 'PROFESSOR';
+
+  const meta = authUser.user_metadata as Record<string, unknown> | undefined;
+  const nameFromMeta =
+    (typeof meta?.full_name === 'string' && meta.full_name) ||
+    (typeof meta?.name === 'string' && meta.name) ||
+    null;
+
+  const existing = await prisma.user.findUnique({ where: { id: authUser.id } });
+  if (existing) {
+    if (
+      existing.email !== authUser.email ||
+      (nameFromMeta && existing.name !== nameFromMeta)
+    ) {
+      return prisma.user.update({
+        where: { id: authUser.id },
+        data: {
+          email: authUser.email!,
+          ...(nameFromMeta ? { name: nameFromMeta } : {}),
+        },
+      });
+    }
+    return existing;
+  }
+
+  return prisma.user.create({
+    data: {
+      id: authUser.id,
+      email: authUser.email!,
+      name: nameFromMeta,
+      role: defaultRole,
+    },
+  });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const { path } = req.query as { path: string[] };
-  const route = Array.isArray(path) ? path.join('/') : (path || '');
+  const prisma = getPrisma();
+  const raw = req.query.path;
+  const pathParts = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
   try {
-    // ───── STATUS ─────
-    if (route === 'status') {
+    /* ─── Health ─── */
+    if (pathParts[0] === 'status') {
       await prisma.$queryRaw`SELECT 1`;
-      return res.json({ status: 'ok', message: 'Redação Nota Mil API', database: 'connected' });
+      return res.status(200).json({
+        status: 'ok',
+        message: 'Redação Nota Mil API',
+        database: 'connected',
+      });
     }
 
-    const user = await getUser(req);
-    if (!user) return res.status(401).json({ error: 'Não autorizado.' });
+    /* ─── Público: apenas rotas acima ─── */
+    const routeKey = pathParts.join('/');
 
-    // ───── ESSAYS ─────
-    if (route === 'essays') {
-      if (req.method === 'GET') {
-        const essays = await prisma.essay.findMany({
-          include: {
-            user: { select: { name: true, email: true } },
-            class: { select: { name: true } }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-        return res.json(essays);
+    if (routeKey === 'me' && req.method === 'GET') {
+      const authUser = await getAuthUser(req);
+      if (!authUser) return res.status(401).json({ error: 'Não autorizado.' });
+      const profile = await ensurePrismaUser(authUser);
+      return res.json(profile);
+    }
+
+    const authUser = await getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Não autorizado.' });
+    const profile = await ensurePrismaUser(authUser);
+
+    /* ─── Essências ─── */
+    if (routeKey === 'classes' && req.method === 'GET') {
+      const classes = await prisma.class.findMany({ orderBy: { name: 'asc' } });
+      return res.json(classes);
+    }
+
+    /* ─── Matrículas por turma (prof/admin) ─── */
+    if (pathParts[0] === 'enrollments' && pathParts[1] === 'class' && pathParts[2] && req.method === 'GET') {
+      if (profile.role !== 'ADMIN' && profile.role !== 'PROFESSOR') {
+        return res.status(403).json({ error: 'Sem permissão.' });
       }
-      if (req.method === 'POST') {
-        const { classId, theme, c1, c2, c3, c4, c5, feedback } = req.body;
-        const clamp = (v: number) => Math.min(Math.max(v || 0, 0), 200);
-        const [s1, s2, s3, s4, s5] = [c1, c2, c3, c4, c5].map(clamp);
-        const total = s1 + s2 + s3 + s4 + s5;
-        const essay = await prisma.essay.create({
-          data: { userId: user.id, classId, theme, c1: s1, c2: s2, c3: s3, c4: s4, c5: s5, total, feedback }
-        });
-        return res.status(201).json(essay);
+      const classId = pathParts[2];
+      const rows = await prisma.enrollment.findMany({
+        where: { classId },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { user: { name: 'asc' } },
+      });
+      return res.json(rows);
+    }
+
+    if (routeKey === 'enrollments/me' && req.method === 'GET') {
+      const rows = await prisma.enrollment.findMany({
+        where: { userId: authUser.id },
+        include: { class: true },
+      });
+      return res.json(rows);
+    }
+
+    if (
+      pathParts[0] === 'enrollments' &&
+      pathParts[1] === 'student' &&
+      pathParts[2] &&
+      req.method === 'GET'
+    ) {
+      const studentId = pathParts[2];
+      if (studentId !== authUser.id && profile.role === 'ALUNO') {
+        return res.status(403).json({ error: 'Sem permissão.' });
       }
-    }
-
-    // ───── ESSAYS VALIDATE ─────
-    if (route.startsWith('essays/') && route.endsWith('/validate') && req.method === 'PUT') {
-      const id = route.split('/')[1];
-      const essay = await prisma.essay.update({ where: { id }, data: { isValidated: true } });
-      return res.json(essay);
-    }
-
-    // ───── ESSAYS BY STUDENT ─────
-    if (route.startsWith('essays/student/')) {
-      const studentId = route.split('/')[2];
-      const essays = await prisma.essay.findMany({
+      const rows = await prisma.enrollment.findMany({
         where: { userId: studentId },
+        include: { class: true },
+      });
+      return res.json(rows);
+    }
+
+    if (routeKey === 'enrollments' && req.method === 'POST') {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Apenas secretaria.' });
+      const { userId, classId, baseValue, discountPercent } = req.body || {};
+      let dp = Number(discountPercent) || 0;
+      if (![0, 50, 100].includes(dp)) dp = 0;
+      const bv = Number(baseValue);
+      const finalValue = bv - bv * (dp / 100);
+      const enrollment = await prisma.enrollment.create({
+        data: {
+          userId,
+          classId,
+          baseValue: bv,
+          discountPercent: dp,
+          finalValue,
+        },
+      });
+      return res.status(201).json(enrollment);
+    }
+
+    /* ─── Admin: criar aluno (Supabase + Prisma) ─── */
+    if (routeKey === 'admin/students' && req.method === 'POST') {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Apenas secretaria.' });
+      const { email, password, name } = req.body || {};
+      if (!email || !password) return res.status(400).json({ error: 'email e password obrigatórios.' });
+
+      const supabase = supabaseServer();
+      const { data: created, error } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name },
+      });
+      if (error || !created.user) {
+        return res.status(400).json({ error: error?.message || 'Falha ao criar usuário.' });
+      }
+
+      await prisma.user.upsert({
+        where: { id: created.user.id },
+        update: { email, name: name || null, role: 'ALUNO' },
+        create: {
+          id: created.user.id,
+          email,
+          name: name || null,
+          role: 'ALUNO',
+        },
+      });
+
+      return res.status(201).json({
+        id: created.user.id,
+        email,
+        name,
+      });
+    }
+
+    /* ─── Redações ─── */
+    if (routeKey === 'essays/me' && req.method === 'GET') {
+      const essays = await prisma.essay.findMany({
+        where: { userId: authUser.id },
         include: { class: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       });
       return res.json(essays);
     }
 
-    // ───── STUDENTS ─────
-    if (route === 'students') {
-      if (req.method === 'GET') {
-        const students = await prisma.user.findMany({
-          where: { role: 'ALUNO' },
-          include: {
-            enrollments: { include: { class: true } },
-            finances: { orderBy: { dueDate: 'desc' }, take: 1 }
-          },
-          orderBy: { name: 'asc' }
-        });
-        return res.json(students);
+    if (routeKey === 'essays' && req.method === 'GET') {
+      if (profile.role !== 'ADMIN' && profile.role !== 'PROFESSOR') {
+        return res.status(403).json({ error: 'Sem permissão.' });
       }
-    }
-
-    // ───── ENROLLMENTS ─────
-    if (route === 'enrollments' && req.method === 'POST') {
-      const { userId, classId, baseValue, discountPercent } = req.body;
-      const dp = Number(discountPercent) || 0;
-      const finalValue = baseValue * (1 - dp / 100);
-      const enrollment = await prisma.enrollment.create({
-        data: { userId, classId, baseValue, discountPercent: dp, finalValue }
+      const essays = await prisma.essay.findMany({
+        include: {
+          user: { select: { name: true, email: true } },
+          class: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
       });
-      return res.json(enrollment);
+      return res.json(essays);
     }
 
-    // ───── STUDENT ENROLLMENTS ─────
-    if (route.startsWith('enrollments/student/')) {
-      const studentId = route.split('/')[2];
-      const enrollments = await prisma.enrollment.findMany({
-        where: { userId: studentId },
-        include: { class: true }
-      });
-      return res.json(enrollments);
-    }
+    if (routeKey === 'essays' && req.method === 'POST') {
+      const { classId, theme, c1, c2, c3, c4, c5, feedback, userId: bodyUserId } = req.body || {};
+      let targetUserId = bodyUserId || authUser.id;
 
-    // ───── FINANCE ─────
-    if (route === 'finance') {
-      if (req.method === 'GET') {
-        const finances = await prisma.finance.findMany({
-          include: { user: { select: { name: true } } },
-          orderBy: { dueDate: 'asc' }
-        });
-        return res.json(finances);
+      if (targetUserId !== authUser.id) {
+        if (profile.role !== 'ADMIN' && profile.role !== 'PROFESSOR') {
+          return res.status(403).json({ error: 'Sem permissão para lançar para outro aluno.' });
+        }
       }
+
+      const clamp = (v: number) => Math.min(Math.max(Math.round(Number(v)) || 0, 0), 200);
+      const [s1, s2, s3, s4, s5] = [c1, c2, c3, c4, c5].map(clamp);
+      const total = Math.min(s1 + s2 + s3 + s4 + s5, 1000);
+
+      const essay = await prisma.essay.create({
+        data: {
+          userId: targetUserId,
+          classId,
+          theme: theme || 'Sem tema',
+          c1: s1,
+          c2: s2,
+          c3: s3,
+          c4: s4,
+          c5: s5,
+          total,
+          feedback: typeof feedback === 'string' ? feedback : null,
+        },
+      });
+      return res.status(201).json(essay);
     }
 
-    // ───── FINANCE BY STUDENT ─────
-    if (route.startsWith('finance/student/')) {
-      const studentId = route.split('/')[2];
+    if (
+      pathParts[0] === 'essays' &&
+      pathParts.length === 3 &&
+      pathParts[2] === 'validate' &&
+      req.method === 'PUT'
+    ) {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Apenas secretaria.' });
+      const id = pathParts[1];
+      const essay = await prisma.essay.update({
+        where: { id },
+        data: { isValidated: true },
+      });
+      return res.json(essay);
+    }
+
+    /* ─── Financeiro ─── */
+    if (routeKey === 'finance/me' && req.method === 'GET') {
       const finances = await prisma.finance.findMany({
-        where: { userId: studentId },
-        orderBy: { dueDate: 'desc' }
+        where: { userId: authUser.id },
+        orderBy: { dueDate: 'desc' },
       });
       return res.json(finances);
     }
 
-    // ───── FINANCE PAY ─────
-    if (route.startsWith('finance/') && route.endsWith('/pay') && req.method === 'PUT') {
-      const id = route.split('/')[1];
-      const { paymentDate, paymentMethod } = req.body;
+    if (routeKey === 'finance' && req.method === 'GET') {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Sem permissão.' });
+      const finances = await prisma.finance.findMany({
+        include: { user: { select: { name: true } } },
+        orderBy: { dueDate: 'asc' },
+      });
+      return res.json(finances);
+    }
+
+    if (
+      pathParts[0] === 'finance' &&
+      pathParts.length === 3 &&
+      pathParts[2] === 'pay' &&
+      req.method === 'PUT'
+    ) {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Apenas secretaria.' });
+      const id = pathParts[1];
+      const { paymentDate, paymentMethod, generateNext } = req.body || {};
       const paid = await prisma.finance.update({
         where: { id },
-        data: { status: 'PAID', paymentDate: new Date(paymentDate), paymentMethod }
+        data: {
+          status: 'PAID',
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentMethod: paymentMethod || 'PIX',
+        },
       });
-      // Gera fatura D+30
-      const nextDue = new Date(paid.dueDate);
-      nextDue.setMonth(nextDue.getMonth() + 1);
-      await prisma.finance.create({
-        data: { userId: paid.userId, value: paid.value, dueDate: nextDue, status: 'PENDING' }
-      });
+      if (generateNext !== false) {
+        const nextDue = new Date(paid.dueDate);
+        nextDue.setMonth(nextDue.getMonth() + 1);
+        await prisma.finance.create({
+          data: {
+            userId: paid.userId,
+            value: paid.value,
+            dueDate: nextDue,
+            status: 'PENDING',
+          },
+        });
+      }
       return res.json(paid);
     }
 
-    // ───── ATTENDANCES ─────
-    if (route === 'attendances') {
-      if (req.method === 'GET') {
-        const { classId, date } = req.query;
-        const attendances = await prisma.attendance.findMany({
-          where: { enrollment: { classId: String(classId) }, date: new Date(String(date)) },
-          include: { enrollment: { include: { user: { select: { id: true, name: true } } } } }
-        });
-        return res.json(attendances);
-      }
+    /* ─── Frequência ─── */
+    if (routeKey === 'attendances/me' && req.method === 'GET') {
+      const rows = await prisma.attendance.findMany({
+        where: { enrollment: { userId: authUser.id } },
+        include: { enrollment: { include: { class: { select: { name: true } } } } },
+        orderBy: { date: 'desc' },
+      });
+      return res.json(rows);
     }
 
-    if (route === 'attendances/batch' && req.method === 'POST') {
-      const { date, records } = req.body;
+    if (routeKey === 'attendances' && req.method === 'GET') {
+      if (profile.role !== 'ADMIN' && profile.role !== 'PROFESSOR') {
+        return res.status(403).json({ error: 'Sem permissão.' });
+      }
+      const { classId, date } = req.query;
+      if (!classId || !date) return res.status(400).json({ error: 'classId e date obrigatórios.' });
+      const attendances = await prisma.attendance.findMany({
+        where: {
+          enrollment: { classId: String(classId) },
+          date: new Date(String(date)),
+        },
+        include: {
+          enrollment: { include: { user: { select: { id: true, name: true } } } },
+        },
+      });
+      return res.json(attendances);
+    }
+
+    if (routeKey === 'attendances/batch' && req.method === 'POST') {
+      if (profile.role !== 'ADMIN' && profile.role !== 'PROFESSOR') {
+        return res.status(403).json({ error: 'Sem permissão.' });
+      }
+      const { date, records } = req.body || {};
+      if (!date || !Array.isArray(records)) {
+        return res.status(400).json({ error: 'date e records obrigatórios.' });
+      }
       const targetDate = new Date(date);
       const results = [];
+
       for (const record of records) {
-        const { enrollmentId, status, notes } = record;
+        const { enrollmentId, status: label, notes } = record;
+        const statusEnum = ATT_LABEL_TO_ENUM[String(label)] || 'PRESENTE';
+        let replacementDate: Date | null = null;
+        if (statusEnum === 'REPOSICAO_AGENDADA' && notes && String(notes).trim()) {
+          const d = new Date(String(notes));
+          if (!Number.isNaN(d.getTime())) replacementDate = d;
+        }
+
         const att = await prisma.attendance.upsert({
-          where: { enrollmentId_date: { enrollmentId, date: targetDate } },
-          update: { status, notes },
-          create: { enrollmentId, date: targetDate, status, notes }
+          where: {
+            enrollmentId_date: { enrollmentId, date: targetDate },
+          },
+          update: { status: statusEnum, replacementDate },
+          create: {
+            enrollmentId,
+            date: targetDate,
+            status: statusEnum,
+            replacementDate,
+          },
         });
         results.push(att);
       }
       return res.json(results);
     }
 
-    // ───── STUDENT ATTENDANCES ─────
-    if (route.startsWith('attendances/student/')) {
-      const studentId = route.split('/')[2];
-      const attendances = await prisma.attendance.findMany({
-        where: { enrollment: { userId: studentId } },
-        include: { enrollment: { include: { class: { select: { name: true } } } } },
-        orderBy: { date: 'desc' }
+    /* ─── Listagem de alunos (admin) ─── */
+    if (routeKey === 'students' && req.method === 'GET') {
+      if (profile.role !== 'ADMIN') return res.status(403).json({ error: 'Sem permissão.' });
+      const students = await prisma.user.findMany({
+        where: { role: 'ALUNO' },
+        include: {
+          enrollments: { include: { class: true } },
+          finances: { orderBy: { dueDate: 'desc' }, take: 1 },
+        },
+        orderBy: { name: 'asc' },
       });
-      return res.json(attendances);
+      return res.json(students);
     }
 
-    // ───── CLASSES ─────
-    if (route === 'classes' && req.method === 'GET') {
-      const classes = await prisma.class.findMany({ orderBy: { name: 'asc' } });
-      return res.json(classes);
-    }
-
-    return res.status(404).json({ error: 'Rota não encontrada: ' + route });
-  } catch (error: any) {
-    console.error('[API Error]', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(404).json({ error: 'Rota não encontrada: ' + routeKey });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Erro interno';
+    console.error('[API]', error);
+    return res.status(500).json({ error: msg });
   }
 }

@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../authMiddleware';
+import { prisma } from '../prismaSingleton';
 
 const router = Router();
-const prisma = new PrismaClient({ accelerateUrl: process.env.DATABASE_URL });
 
 /**
  * Endpoint de Consulta Financeira do Aluno

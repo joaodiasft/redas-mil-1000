@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../authMiddleware';
+import { prisma } from '../prismaSingleton';
 
 const router = Router();
-const prisma = new PrismaClient({ accelerateUrl: process.env.DATABASE_URL });
 
 /**
  * Endpoint de Lançamento de Notas de Redação
@@ -12,7 +11,7 @@ const prisma = new PrismaClient({ accelerateUrl: process.env.DATABASE_URL });
  */
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { classId, theme, c1, c2, c3, c4, c5 } = req.body;
+    const { classId, theme, c1, c2, c3, c4, c5, feedback } = req.body;
     
     // Proteção IDOR e Segurança: Só pode lançar nota para si mesmo (se for aluno) ou admin/prof
     // Para simplificar a POC, pegaremos o userId do próprio token
@@ -38,7 +37,7 @@ router.post('/', requireAuth, async (req, res) => {
         c4: safeC4,
         c5: safeC5,
         total: backendTotal,
-        feedback,
+        feedback: feedback ?? null,
         isValidated: false
       }
     });
