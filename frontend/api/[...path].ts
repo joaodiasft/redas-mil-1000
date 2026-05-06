@@ -13,6 +13,34 @@ const ATT_LABEL_TO_ENUM: Record<string, AttendanceStatus> = {
   'Reposição Feita (Outro dia)': 'REPOSICAO_FEITA',
 };
 
+/** Segmentos depois de `/api` (rewrites legacy / Node não preenchem `query.path` como esperado). */
+function extractApiPathSegments(req: VercelRequest): string[] {
+  const raw = req.query.path;
+  if (Array.isArray(raw)) {
+    return raw.flatMap((seg) => String(seg).split('/')).filter(Boolean);
+  }
+  if (typeof raw === 'string' && raw.length > 0) {
+    return raw.split('/').filter(Boolean);
+  }
+
+  let pathname = '';
+  if (typeof req.url === 'string') {
+    const withoutQuery = req.url.split('?')[0];
+    if (withoutQuery.startsWith('http')) {
+      try {
+        pathname = new URL(withoutQuery).pathname;
+      } catch {
+        pathname = withoutQuery;
+      }
+    } else {
+      pathname = withoutQuery;
+    }
+  }
+
+  const trimmed = pathname.replace(/^\/api\/?/, '');
+  return trimmed.split('/').filter(Boolean);
+}
+
 function supabaseServer() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -84,8 +112,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const raw = req.query.path;
-  const pathParts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const pathParts = extractApiPathSegments(req);
 
   try {
     const prisma = getPrisma();
