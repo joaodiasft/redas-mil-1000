@@ -1,0 +1,10 @@
+{
+  "name": "redas-mil-1000",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build -w frontend"
+  }
+}

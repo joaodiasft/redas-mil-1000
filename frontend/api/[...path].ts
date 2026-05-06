@@ -471,8 +471,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(404).json({ error: 'Rota não encontrada: ' + routeKey });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Erro interno';
     console.error('[API]', error);
+    const msg =
+      error instanceof Error
+        ? error.message
+        : error && typeof error === 'object' && 'message' in error
+          ? String((error as { message: unknown }).message)
+          : typeof error === 'string'
+            ? error
+            : 'Erro interno';
     return res.status(500).json({ error: msg });
   }
 }
