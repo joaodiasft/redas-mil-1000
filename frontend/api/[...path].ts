@@ -13,7 +13,7 @@ const ATT_LABEL_TO_ENUM: Record<string, AttendanceStatus> = {
   'Reposição Feita (Outro dia)': 'REPOSICAO_FEITA',
 };
 
-/** Segmentos depois de `/api` (rewrites legacy / Node não preenchem `query.path` como esperado). */
+/** Segmentos depois de `/api` (rewrites legacy nem sempre preenchem `query.path`). */
 function extractApiPathSegments(req: VercelRequest): string[] {
   const raw = req.query.path;
   if (Array.isArray(raw)) {
@@ -23,22 +23,52 @@ function extractApiPathSegments(req: VercelRequest): string[] {
     return raw.split('/').filter(Boolean);
   }
 
-  let pathname = '';
-  if (typeof req.url === 'string') {
+  const pickPathname = (): string => {
+    const h = req.headers;
+    const fromHeader =
+      (typeof h['x-invoke-path'] === 'string' && h['x-invoke-path']) ||
+      (typeof h['x-matched-path'] === 'string' && h['x-matched-path']) ||
+      '';
+    if (fromHeader) {
+      const q = fromHeader.split('?')[0];
+      if (q.startsWith('http')) {
+        try {
+          return new URL(fromHeader).pathname;
+        } catch {
+          return q;
+        }
+      }
+      return q;
+    }
+
+    if (typeof req.url !== 'string') return '';
     const withoutQuery = req.url.split('?')[0];
     if (withoutQuery.startsWith('http')) {
       try {
-        pathname = new URL(withoutQuery).pathname;
+        return new URL(withoutQuery).pathname;
       } catch {
-        pathname = withoutQuery;
+        return withoutQuery;
       }
-    } else {
-      pathname = withoutQuery;
     }
-  }
+    return withoutQuery;
+  };
 
-  const trimmed = pathname.replace(/^\/api\/?/, '');
-  return trimmed.split('/').filter(Boolean);
+  let pathname = pickPathname();
+  pathname = pathname
+    .replace(/^\/frontend\/api\/\[\.\.\.path\]/i, '')
+    .replace(/^\/api(?=\/|$)/i, '');
+  const segments = pathname.split('/').filter(Boolean);
+
+  if (segments.length > 0) return segments;
+
+  const qs =
+    typeof req.url === 'string' && req.url.includes('?')
+      ? new URLSearchParams(req.url.slice(req.url.indexOf('?')))
+      : undefined;
+  const qp = qs?.get('path');
+  if (qp) return qp.split('/').filter(Boolean);
+
+  return [];
 }
 
 function supabaseServer() {
