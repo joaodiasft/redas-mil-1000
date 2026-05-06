@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type User as SupabaseAuthUser } from '@supabase/supabase-js';
 import type { AttendanceStatus, Role } from '@prisma/client';
-import { getPrisma } from './_prisma';
+import { getPrisma } from './_prisma.js';
 
 const ATT_LABEL_TO_ENUM: Record<string, AttendanceStatus> = {
   Presente: 'PRESENTE',
