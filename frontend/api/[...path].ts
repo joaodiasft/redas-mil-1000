@@ -84,11 +84,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const prisma = getPrisma();
   const raw = req.query.path;
   const pathParts = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
   try {
+    const prisma = getPrisma();
+
     /* ─── Health ─── */
     if (pathParts[0] === 'status') {
       await prisma.$queryRaw`SELECT 1`;
