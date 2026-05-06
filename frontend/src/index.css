@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* ────────────────────────────────────────────
+   DESIGN SYSTEM — REDAÇÃO NOTA MIL
+   Paleta: Branco/Slate · Rosa Vibrante · Mono
+──────────────────────────────────────────── */
+
+/* Custom Tokens via CSS Variables (Tailwind v4) */
+@theme {
+  /* Tipografia */
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  /* Paleta Rosa Vibrante (Identidade da Marca) */
+  --color-brand-50:  #fff1f5;
+  --color-brand-100: #ffe4ec;
+  --color-brand-200: #fecdd9;
+  --color-brand-300: #fda4bb;
+  --color-brand-400: #fb7098;
+  --color-brand-500: #f43f74;
+  --color-brand-600: #e11d5a;
+  --color-brand-700: #be1248;
+  --color-brand-800: #9f123e;
+  --color-brand-900: #881337;
+
+  /* Animações customizadas */
+  --animate-fade-in: fadeIn 0.4s ease-out;
+  --animate-slide-up: slideUp 0.4s ease-out;
+  --animate-pulse-soft: pulseSoft 2s ease-in-out infinite;
+}
+
+/* ── Keyframes ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Utilitários Globais ── */
+.font-mono {
+  font-family: var(--font-mono) !important;
+}
+
+/* ── Scrollbar Premium ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #e11d5a;
+}
+
+/* ── Selection ── */
+::selection {
+  background-color: #fecdd9;
+  color: #9f123e;
+}
