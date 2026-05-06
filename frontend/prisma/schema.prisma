@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// O ID do usuário no Prisma deve ser o mesmo do Supabase Auth (UUID)
+model User {
+  id        String   @id @default(uuid()) // Pode receber o UID gerado pelo Supabase auth.users
+  email     String   @unique
+  name      String?
+  role      Role     @default(ALUNO)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments Enrollment[]
+  essays      Essay[]
+  finances    Finance[]
+}
+
+enum Role {
+  ADMIN
+  PROFESSOR
+  ALUNO
+}
+
+model Class {
+  id          String   @id @default(uuid())
+  name        String   // Ex: R1, EX1
+  description String?
+  schedule    String?  // Ex: "Sábado | 10:30 às 12:00"
+  maxStudents Int      @default(30)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  enrollments Enrollment[]
+  essays      Essay[]
+}
+
+model Enrollment {
+  id              String   @id @default(uuid())
+  userId          String
+  classId         String
+  baseValue       Float
+  discountPercent Float    @default(0.0)
+  finalValue      Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  
+  attendances Attendance[]
+
+  @@unique([userId, classId])
+}
+
+enum AttendanceStatus {
+  PRESENTE
+  FALTA
+  JUSTIFICOU
+  REPOSICAO_AGENDADA
+  REPOSICAO_NESTA_AULA
+  REPOSICAO_FEITA
+}
+
+model Attendance {
+  id              String           @id @default(uuid())
+  enrollmentId    String
+  date            DateTime
+  status          AttendanceStatus
+  replacementDate DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, date])
+}
+
+model Essay {
+  id          String   @id @default(uuid())
+  userId      String
+  classId     String
+  theme       String
+  c1          Int      @default(0)
+  c2          Int      @default(0)
+  c3          Int      @default(0)
+  c4          Int      @default(0)
+  c5          Int      @default(0)
+  total       Int      @default(0)
+  feedback    String?  @db.Text
+  isValidated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+}
+
+enum FinanceStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+model Finance {
+  id            String        @id @default(uuid())
+  userId        String
+  value         Float
+  dueDate       DateTime
+  paymentDate   DateTime?
+  paymentMethod String?
+  status        FinanceStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

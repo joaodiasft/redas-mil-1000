@@ -31,7 +31,13 @@ export const DashboardLayout: React.FC<LayoutProps> = ({
     { label: 'Lançar Notas', path: '/prof/notas' },
   ];
 
-  const menuItems = role === 'PROFESSOR' ? profMenu : adminMenu;
+  const studentMenu = [
+    { label: 'Meu Espaço', path: '/meu-espaco' },
+  ];
+
+  const menuItems = role === 'PROFESSOR' ? profMenu : role === 'ALUNO' ? studentMenu : adminMenu;
+
+  const sectionLabel = role === 'PROFESSOR' ? 'Área do Professor' : role === 'ALUNO' ? 'Meu Espaço' : 'Gestão';
 
   const roleColors: Record<string, string> = {
     ADMIN: 'brand',
@@ -70,7 +76,7 @@ export const DashboardLayout: React.FC<LayoutProps> = ({
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2 block">
-            {role === 'PROFESSOR' ? 'Área do Professor' : 'Gestão'}
+            {sectionLabel}
           </span>
           <ul className="space-y-1">
             {menuItems.map((item) => {

@@ -9,6 +9,7 @@ import { AdminRedacoes } from './components/admin/AdminRedacoes';
 import { AdminFinanceiro } from './components/admin/AdminFinanceiro';
 import { ProfFrequencia } from './components/prof/ProfFrequencia';
 import { ProfNotas } from './components/prof/ProfNotas';
+import { StudentDashboard } from './components/student/StudentDashboard';
 
 // Rota protegida — redireciona para /login se não autenticado
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -54,11 +55,14 @@ export default function App() {
         {/* Rotas Prof Protegidas */}
         <Route path="/prof/frequencia" element={<PrivateRoute><ProfFrequencia /></PrivateRoute>} />
         <Route path="/prof/notas" element={<PrivateRoute><ProfNotas /></PrivateRoute>} />
+
+        {/* Rotas Aluno Protegidas */}
+        <Route path="/meu-espaco" element={<PrivateRoute><StudentDashboard /></PrivateRoute>} />
         
         {/* Redireciona raiz para o dashboard */}
-        <Route path="/" element={<Navigate to="/admin" replace />} />
+        <Route path="/" element={<Navigate to="/meu-espaco" replace />} />
         {/* 404 */}
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        <Route path="*" element={<Navigate to="/meu-espaco" replace />} />
       </Routes>
     </BrowserRouter>
   );
